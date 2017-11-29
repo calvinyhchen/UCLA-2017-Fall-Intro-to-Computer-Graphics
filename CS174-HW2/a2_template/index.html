@@ -1,0 +1,440 @@
+<!-- Graphics Example Code.  index.html - The web page document containing the canvas (drawing surface), that launches your javascript files.  By Garett //-->
+<!DOCTYPE html> <html> <head> <meta charset="UTF-8"/> <link rel="icon" href="assets/fav.ico">
+<script type="text/javascript" src="tinywebgl-ucla.js" ></script>  <!--  Javascript "include" files.  Any code in them gets executed as part of the page loading. //-->
+<script type="text/javascript" src="dependencies.js"   ></script>
+<script type="text/javascript"> "use strict"    
+window.onload = function init()        
+  // ********************* THE ENTRY POINT OF THE WHOLE PROGRAM STARTS HERE ********************* 
+    { window.contexts = {};                                                           
+     // A global variable, "contexts".  Browsers support up to 16 WebGL contexts per page.
+      
+      const scenes  = [ "Tutorial_Animation", "Movement_Controls", "Global_Info_Table" ]; 
+      // Register some scenes to the "Canvas_Manager" object -- which WebGL calls
+                                                                                       
+      // upon every time a draw / keyboard / mouse event happens.  
+      if( eval( "typeof " + scenes[0] ) !== "undefined" )
+      { document.getElementById( "canvases" ).appendChild( Object.assign( document.createElement( "canvas" ), { id: "main_canvas", width: 800, height: 600 } ) );
+        contexts[ "main_canvas" ] = new Canvas_Manager( "main_canvas", Color.of( 0,0,0,1 ), scenes );   
+        // Manage the WebGL canvas.  Second parameter sets background color.
+        for( let c in contexts ) contexts[ c ].render();     
+        // Call render() for each WebGL context on this page.  
+        //Then render() will re-queue itself for more calls.
+        
+        Code_Manager.display_code( eval( scenes[0] ) );                                  
+        // Display the code for our demo on the page, starting with the first scene in the list.
+        for( let list of [ core_dependencies, all_dependencies ] )
+        document.querySelector( "#class_list" ).rows[2].appendChild( Object.assign( document.createElement( "td" ), { 
+          innerHTML: list.reduce( (acc, x) => acc += "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + x + ")'>" + x + "</a><br>", "" ) } ) );        
+        document.getElementsByName( "main_demo_link" )[0].innerHTML = "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + scenes[0] + ")'>" + scenes[0] + "</a><br>";
+        document.querySelector("#code_display").innerHTML = "Below is the code for the demo that's running:<br>&nbsp;<br>" + document.querySelector("#code_display").innerHTML;             
+      }
+      
+      document.querySelector("#edit_button").addEventListener('click', () => {
+        code_panel.style.display=class_list.style.display='none'; new_demo_source_code.style.display='block'; 
+        document.getElementsByName( 'new_demo_code' )[0].value=code_display.dataset.displayed.toString() } )
+      const form = document.forms.namedItem("new_demo_source_code");
+      form.addEventListener('submit', function(event) 
+        { if( document.getElementsByName( "finished" )[0].checked )
+            alert( "Your demo will be submitted.  If approved, you will start being asked for a password to make any further updates to it.  This password "
+                 + "will appear right now, below the submit button, and then (assuming submission worked) it will never appear again.  Write it down." );
+          var xhr = new XMLHttpRequest();
+          xhr.open("POST", "/submit-demo?Unapproved", true);
+          xhr.responseType = "json";
+          xhr.onload = function(event) 
+          { if (xhr.status != 200) { document.querySelector("#submit_result").textContent = "Error " + xhr.status + " when trying to upload."; return }
+            document.querySelector("#submit_result").textContent = this.response.message;
+            // if( this.response.hide_finished_checkbox ) { document.getElementsByName( "finished" )[0].checked = false; expert_panel.style.display = "none" }
+            if( this.response.show_password  ) document.getElementsByName( "password" )[0] .style.display = "inline";
+            if( this.response.show_overwrite ) document.querySelector( "#overwrite_panel" ).style.display = "inline";
+          };
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.send( JSON.stringify( Array.from( form.elements ).reduce( ( accum, elem ) => 
+            { if( elem.value && !( ['checkbox', 'radio'].includes(elem.type) && !elem.checked ) ) accum[elem.name] = elem.value; return accum }, {} ) ) );
+          event.preventDefault();
+        }, false);      
+    }
+
+// Below is the demo you will see when you run the program!    
+  
+class Tutorial_Animation extends Scene_Component  
+// An example of a Scene_Component that our class Canvas_Manager can manage.  
+//Like most, this one draws 3D shapes.
+{ constructor( context )
+    { super( context );
+      var shapes = { 'diamond'         : new Diamond(),
+                     'triangle'        : new Triangle(),                            
+                     // At the beginning of our program, instantiate all shapes we plan to use,
+                     'strip'           : new Square(),  
+
+                     // each with only one instance in the graphics card's memory.
+                     'bad_tetrahedron' : new Tetrahedron( false ),                  
+                     // For example we would only create one "cube" blueprint in the GPU, but then 
+                     'tetrahedron'     : new Tetrahedron( true ),                   
+                     // re-use it many times per call to display to get multiple cubes in the scene.
+                     'windmill'        : new Windmill( 10 ),
+                     'cube'            : new Cube(),
+                     'human_body'      : new HumanBody(),
+                     'cone'            : new Closed_Cone(10,10,[[0,1],[1,0]]),
+                     'tube'            : new Cylindrical_Tube(10,10,[[0,1],[1,0]]),
+                     'ball'            : new Subdivision_Sphere( 4 )
+                      
+                   };
+      //this.live_string();
+      this.submit_shapes( context, shapes );
+      //this.live_string(init);
+      
+       // Place the camera, which is stored in a scratchpad for globals.  Secondly, setup the projection:  The matrix that determines how depth is treated.  It projects 3D points onto a plane.
+      Object.assign( context.globals.graphics_state, { camera_transform: Mat4.translation([ 0, 10,-40 ]), projection_transform: Mat4.perspective( Math.PI/4, context.width/context.height, .1, 1000 ) } );
+      
+      // *** Materials: *** Declare new ones as temps when needed; they're just cheap wrappers for some numbers.  1st parameter:  Color (4 floats in RGBA format),
+      // 2nd: Ambient light, 3rd: Diffuse reflectivity, 4th: Specular reflectivity, 5th: Smoothness exponent, 6th: Optional texture object, leave off for un-textured.
+      Object.assign( this, { purplePlastic: context.get_instance( Phong_Model  ).material( Color.of( .9,.5,.9, 1 ), .4, .4, .8, 40 ),
+                             greyPlastic  : context.get_instance( Phong_Model  ).material( Color.of( .5,.5,.5, 1 ), .4, .8, .4, 20 ),   // Smaller exponent means 
+                             blueGlass    : context.get_instance( Phong_Model  ).material( Color.of( .5,.5, 1,.2 ), .4, .8, .4, 40 ),   // a bigger shiny spot.
+                             fire         : context.get_instance( Funny_Shader ).material(),
+                             yellow: context.get_instance( Phong_Model ).material( Color.of( .8, .8, .3,  1 ), .2, 1, .7, 40 ),
+                             brown:  context.get_instance( Phong_Model ).material( Color.of( .5, .3, .1,  1 ), .2, 1,  1, 40 ),  // which returns a special-made "material" 
+                             red:    context.get_instance( Phong_Model ).material( Color.of(  1,  0,  0, 1 ), .1, .7, 1, 40 ),  // (a JavaScript object)
+                             green:  context.get_instance( Phong_Model ).material( Color.of(  0, .5,  0,  1 ), .1, .7, 1, 40 ),
+                             blue:   context.get_instance( Phong_Model ).material( Color.of(  0,  0,  1, .8 ), .1, .7, 1, 40 ),
+                             silver: context.get_instance( Phong_Model ).material( Color.of( .8, .8, .8,  1 ),  0,  1, 1, 40 ),
+                             white: context.get_instance( Phong_Model ).material( Color.of( 1, 1, 1, .9  ),  0,  1, 1, 40 ),
+                             black: context.get_instance( Phong_Model ).material( Color.of( 0, 0, 0,  1 ),  0,  1, 1, 40 ),
+                             grass: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/grass.jpg" ) ),
+                             cloud: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/cloud.jpg" ) ),
+                             wood: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/wood.jpg" ) ),
+                             fire: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/fire.jpg" ) ),
+                             skin: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/skin.jpg" ) ),
+                             red_c: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), 1, 0, 0, 40, context.get_instance( "assets/red_cloth.jpg" ) ),
+                             stars        : context.get_instance( Phong_Model  ).material( Color.of( 0,0,1,1 ), .5, .5, .5, 40, context.get_instance( "assets/stars.png" ) ) } );                             
+    }
+
+  draw_head( graphics_state, model_transform)
+  {
+    const head = model_transform.times(Mat4.scale([2,2,2]));
+    this.shapes.ball.draw(graphics_state,head,this.skin);
+  }
+
+  draw_body( graphics_state, model_transform,t)
+  {
+    var body = model_transform.times(Mat4.rotation((Math.PI/4),Vec.of(0,1,0)));
+    body = body.times(Mat4.scale([2,4,2]));
+    if(t==1)
+      this.shapes.human_body.draw(graphics_state,body,this.red);
+    if(t==2)
+      this.shapes.human_body.draw(graphics_state,body,this.blue);
+  }
+
+  draw_shoulder( graphics_state, model_transform)
+  {
+    const shoulder = model_transform.times(Mat4.scale([1,1,1]));
+    this.shapes.ball.draw(graphics_state,shoulder,this.skin);
+  }
+
+  draw_arm( graphics_state, model_transform)
+  {
+    const shoulder = model_transform.times(Mat4.scale([1,3,1]));
+    this.shapes.ball.draw(graphics_state,shoulder,this.skin);
+  }
+
+  draw_hat( graphics_state, model_transform)
+  {
+    model_transform = model_transform.times(Mat4.rotation((Math.PI*3/2),Vec.of(1,0,0)));
+    const shoulder = model_transform.times(Mat4.scale([2,2,3]));
+    this.shapes.cone.draw(graphics_state,shoulder,this.black);
+  }
+
+  draw_weapon( graphics_state, model_transform)
+  {
+    model_transform = model_transform.times(Mat4.translation([0,0,1]));
+    const shoulder = model_transform.times(Mat4.scale([.5,.5,9]));
+    this.shapes.tube.draw(graphics_state,shoulder,this.black);
+    const weapon = model_transform.times(Mat4.translation([0,0,5]));
+    this.shapes.diamond.draw(graphics_state,weapon,this.blue);
+  }
+
+  draw_fly( graphics_state, model_transform)
+  {
+    let tmp = model_transform.times(Mat4.translation([0,0,2]));
+    const shoulder = tmp.times(Mat4.scale([1,1,20]));
+    this.shapes.tube.draw(graphics_state,shoulder,this.wood);
+    
+    model_transform = model_transform.times(Mat4.translation([0,10,-5]));
+    model_transform = model_transform.times(Mat4.rotation((-Math.PI/2),Vec.of(1,0,0)) );
+    let weapon = model_transform.times(Mat4.translation([0,0,-10]));
+    //weapon = weapon.times(Mat4.rotation((Math.PI/4),Vec.of([1,0,0])) );
+    weapon = weapon.times(Mat4.scale([2,4,2]));
+    this.shapes.ball.draw(graphics_state,weapon,this.wood);
+  }
+
+  draw_hand( graphics_state, model_transform)
+  {
+    const head = model_transform.times(Mat4.scale([1,1,1]));
+    this.shapes.ball.draw(graphics_state,head,this.skin);
+  }
+
+  draw_attack( graphics_state, model_transform, t)
+  {
+    var ti = graphics_state.animation_time/1000;
+    let head = model_transform.times( Mat4.rotation(Math.PI*(100*ti),Vec.of(1,1,1)) );
+    head = head.times(Mat4.scale([2*(2*t-1),2*(2*t-1),2*(2*t-1)]));
+    this.shapes.ball.draw(graphics_state,head,this.fire);
+  }
+
+  draw_wizard(graphics_state, wizard1, t)
+  {
+      wizard1 = wizard1.times(Mat4.rotation(Math.PI,Vec.of(0,1,0)));
+      wizard1 = wizard1.times(Mat4.translation([0,6,0]));
+      this.draw_head(graphics_state, wizard1);
+      let hat = wizard1.times(Mat4.translation([0,4,0]));
+      this.draw_hat(graphics_state,hat);
+      wizard1 = wizard1.times(Mat4.translation([0,-6,0]));
+      this.draw_body(graphics_state, wizard1, 1);
+      //shoulder
+      for( let side of [1,-1] ){
+        let shoulder = wizard1;
+        shoulder = shoulder.times(Mat4.translation([side*3.5,3,0]));
+        if(side>-2){
+          if(t>15 && t<21)
+            shoulder = shoulder.times(Mat4.rotation( Math.sin(t)-1,Vec.of(1,0,0)));
+        }
+        if(t>23 && t<24){
+          shoulder = shoulder.times(Mat4.rotation( -3.5*Math.sin(t-23),Vec.of(1,0,0) ));
+          shoulder = shoulder.times(Mat4.rotation( side*Math.sin(t-23),Vec.of(0,0,1) ));
+        }
+        if(t>=24){
+          shoulder = shoulder.times(Mat4.rotation( -3.5*Math.sin(1),Vec.of(1,0,0) ));
+          shoulder = shoulder.times(Mat4.rotation( side*Math.sin(1),Vec.of(0,0,1) ));
+        }
+        this.draw_shoulder(graphics_state, shoulder);
+        let arm = shoulder;
+        arm = arm.times(Mat4.translation([0,-4,0]));  
+        this.draw_arm(graphics_state, arm);
+        //arm size y = +-3 
+        let weapon = arm;
+        weapon = weapon.times(Mat4.translation([0,-3 - .5,0])  );
+        if(t>23 && t<24){
+          weapon = weapon.times(Mat4.rotation( 2*Math.sin(t-23),Vec.of(0,1,0) ));
+        }
+        if(t>=24){
+          weapon = weapon.times(Mat4.rotation( 2*Math.sin(1),Vec.of(0,1,0) ));
+        }      
+        this.draw_hand(graphics_state,weapon);
+        if(side==-1){
+          if(t>15 && t<21){
+            weapon = weapon.times(Mat4.rotation( Math.sin(t)/2,Vec.of(1,1,0)))
+          }
+          this.draw_weapon(graphics_state,weapon);
+        }
+        if(side==-1 && t<=18.2 && t > 16){
+            let attack = wizard1;
+            attack = attack.times(Mat4.translation([0,0,20]));
+            this.draw_attack(graphics_state,attack,0.5+1.5*(t-16)/2.2);
+        }
+        if(side==-1 && t>18.2 && t<30){
+            let attack = wizard1;
+            attack = attack.times(Mat4.translation([0,0,30*(t-17.6)]));
+            this.draw_attack(graphics_state,attack,2);          
+        }
+        if(t<=18.2 && t>17){
+          graphics_state.camera_transform = Mat4.look_at( Vec.of( 0,11.5,-.5 ), Vec.of(0,0,-30) , Vec.of( 0,1,0 )) ; 
+
+        }
+        if(t>18.2 && t<22.5){
+          graphics_state.camera_transform = Mat4.look_at( Vec.of( 0,11.5, -.5-30*(t-18.2) ), Vec.of(0,0,-30-30*(t-18.2)) , Vec.of( 0,1,0 )) ;           
+        }
+      
+      }
+      //butt
+      for(let side of [1,-1]){
+        let butt = wizard1;
+        butt = butt.times(Mat4.translation([side*2,-4,0]));
+        this.draw_shoulder(graphics_state,butt);
+        let leg = butt;
+        leg = leg.times(Mat4.translation([0,-4,0]));
+        this.draw_arm(graphics_state,leg);
+      }
+      let fly = wizard1.times(Mat4.translation([0,-4-1,0]));
+      this.draw_fly(graphics_state,fly);
+  }
+
+  draw_wizard2(graphics_state, wizard1, t)
+  {
+      if(t<20 && t>19){
+        wizard1 = wizard1.times(Mat4.rotation(Math.PI*(t-19),Vec.of(0,1,0)));
+      }
+      if(t>=20){
+        wizard1 = wizard1.times(Mat4.rotation(Math.PI,Vec.of(0,1,0)));
+      }
+      if(t>=20){
+        wizard1 = wizard1.times(Mat4.translation([0,0,50*(t-20)]));
+      }
+      wizard1 = wizard1.times(Mat4.translation([0,6,0]));
+      this.draw_head(graphics_state, wizard1);
+      let hat = wizard1.times(Mat4.translation([0,4,0]));
+      this.draw_hat(graphics_state,hat);
+      wizard1 = wizard1.times(Mat4.translation([0,-6,0]));
+      this.draw_body(graphics_state, wizard1, 2);
+      //shoulder
+      for( let side of [1,-1] ){
+        let shoulder = wizard1;
+        shoulder = shoulder.times(Mat4.translation([side*3.5,3,0]));
+        if(side==-1){
+          if(t>8.5 && t<15)
+            shoulder = shoulder.times(Mat4.rotation( Math.sin(t)-1,Vec.of(1,0,0)));
+        }
+        this.draw_shoulder(graphics_state, shoulder);
+        let arm = shoulder;
+        arm = arm.times(Mat4.translation([0,-4,0]));
+        this.draw_arm(graphics_state, arm);
+        //arm size y = +-3
+        let weapon = arm;
+        weapon = weapon.times(Mat4.translation([0,-3 - .5,0])  ); 
+        this.draw_hand(graphics_state,weapon);
+        if(side==-1){
+          if(t>8.5 && t<15){
+            weapon = weapon.times(Mat4.rotation( Math.sin(t)/2,Vec.of(1,1,0)))
+          }
+          this.draw_weapon(graphics_state,weapon);
+        }
+        if(side==-1 && t>13 && t<30){
+            let attack = wizard1;
+            attack = attack.times(Mat4.translation([0,0,50*t-620]));
+            this.draw_attack(graphics_state,attack,1);          
+        }
+      }
+      //butt
+      for(let side of [1,-1]){
+        let butt = wizard1;
+        butt = butt.times(Mat4.translation([side*2,-4,0]));
+        this.draw_shoulder(graphics_state,butt);
+        let leg = butt;
+        leg = leg.times(Mat4.translation([0,-4,0]));
+        this.draw_arm(graphics_state,leg);
+      }
+      let fly = wizard1.times(Mat4.translation([0,-4-1,0]));
+      this.draw_fly(graphics_state,fly);
+  }
+
+  display( graphics_state )
+    { var model_transform = Mat4.identity();             
+    // We begin with a brand new model_transform every frame.
+      
+      // *** Lights: *** Values of vector or point lights over time.  Two different lights *per shape* supported by Phong_Shader; more requires changing a number in the vertex 
+      graphics_state.lights = [ new Light( Vec.of(  30,  30,  34, 1 ), Color.of( 0., .4, 0, 1 ), 100000 ),      // shader.  Arguments to construct a Light(): Light source position
+                                new Light( Vec.of( -10, -20, -14, 0 ), Color.of( 1, 1, .3, 1 ), 100    ) ];    // or vector (homogeneous coordinates), color, and size.  
+      
+      
+      var down_model = Mat4.identity();
+      down_model.post_multiply(Mat4.translation([0,-300,0]) );
+      down_model.post_multiply(Mat4.scale([300,.1,300]));      
+      this.shapes.cube.draw( graphics_state, down_model, this.cloud );
+
+      var back_model = Mat4.identity();
+      back_model.post_multiply(Mat4.translation([0,0,-300]) );
+      back_model.post_multiply(Mat4.scale([300,300,.1]));
+      this.shapes.cube.draw( graphics_state, back_model, this.cloud);
+      
+      var front_model = Mat4.identity();
+      front_model.post_multiply(Mat4.translation([0,0,300]) );
+      front_model.post_multiply(Mat4.scale([300,300,.1]));
+      this.shapes.cube.draw( graphics_state, front_model, this.cloud);
+      
+      var left_model = Mat4.identity();
+      left_model.post_multiply(Mat4.translation([-300,0,0]) );
+      left_model.post_multiply(Mat4.scale([.1,300,300]));
+      this.shapes.cube.draw( graphics_state, left_model, this.cloud);
+      
+      var right_model = Mat4.identity();
+      right_model.post_multiply(Mat4.translation([300,0,0]) );
+      right_model.post_multiply(Mat4.scale([.1,300,300]));
+      this.shapes.cube.draw( graphics_state, right_model, this.cloud);
+      
+      var up_model = Mat4.identity();
+      up_model.post_multiply(Mat4.translation([0,300,0]) );
+      up_model.post_multiply(Mat4.scale([300,.1,300]));
+      this.shapes.cube.draw( graphics_state, up_model, this.cloud);
+
+      
+      var t = graphics_state.animation_time/1000;
+      if(t<6.7){
+        graphics_state.camera_transform = Mat4.look_at( Vec.of( 50*Math.sin(t),10,50*Math.cos(t) ), Vec.of( 0,5,0 ), Vec.of( 0,1,0 ) );
+      }
+      
+      
+      var wizard1 = Mat4.identity();
+      if(t>13.8 && t<=14.5){
+        wizard1 = wizard1.times(Mat4.translation([20*(t-13.8),20*(t-13.8),0]));
+      }
+      if(t>13.8 && t <= 14.5){
+        graphics_state.camera_transform = Mat4.look_at( Vec.of( 50*Math.sin(6.7) + 20*(t-13.8),10+20*(t-13.8),50*Math.cos(6.7) ), Vec.of( 0 + 20*(t-13.8) ,5 + 20*(t-13.8),0 ), Vec.of( 0,1,0 ) );
+      }
+      if(t<=15.9 && t>14.5){
+        wizard1 = wizard1.times(Mat4.translation([20*(14.5-13.8),20*(14.5-13.8),0]));
+      }
+      if(t<=15.2 && t>14.5){
+        graphics_state.camera_transform = Mat4.look_at( Vec.of( 50*Math.sin(6.7) + 20*(14.5-13.8),10+20*(14.5-13.8),50*Math.cos(6.7) ), Vec.of( 0 + 20*(14.5-13.8) ,5 + 20*(14.5-13.8),0 ), Vec.of( 0,1,0 ) );  
+      }
+      if(t<=15.9 && t>15.2){
+        wizard1 = wizard1.times(Mat4.translation([20*(15.2-t),20*(15.2-t),0]));
+      }
+      if(t<=15.9 && t>15.2){
+        var x = 20*(15.2-t);
+        graphics_state.camera_transform = Mat4.look_at( Vec.of( 50*Math.sin(6.7) + 20*(14.5-13.8) + x,10+20*(14.5-13.8) + x,50*Math.cos(6.7) ), Vec.of( 0 + 20*(14.5-13.8) + x ,5 + 20*(14.5-13.8) + x,0 ), Vec.of( 0,1,0 ) );  
+      }
+      
+      if(t<25.6 && t>22.5){
+        graphics_state.camera_transform = Mat4.look_at( Vec.of( 50*Math.sin(t-15.8),10,50*Math.cos(t-15.8) ), Vec.of( 0,5,0 ), Vec.of( 0,1,0 ) );
+      }
+
+      this.draw_wizard(graphics_state,wizard1,t);
+
+      var wizard2 = Mat4.identity();
+      wizard2 = wizard2.times(Mat4.translation([0,0,-90]));
+      this.draw_wizard2(graphics_state,wizard2,t); 
+
+
+
+    }
+}
+</script>
+<style>
+  table { border-collapse: collapse; display:block; overflow-x: auto; }
+  table, th, td { border: 2px solid black; vertical-align: top; white-space: nowrap }
+  th, td { overflow: hidden;  }
+  button { position: relative; background-color: #4C9F50; color: white; padding: 6px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); transition: background-color .3s, transform .3s }
+  button:hover, button:focus { transform: scale(1.2); color:gold }
+  .dropdown { display:inline-block }
+  .dropdown-content { display: none; position: absolute; background-color: #f9f9f9; min-width: 100px; overflow: auto; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2) }
+  .dropdown-content a { color: black; padding: 4px 4px; display: block }
+  .dropdown a:hover { background-color: #f1f1f1 }
+  .show { display:inline-block }
+</style>
+</head><body>
+<div id="explanation_section"></div>
+<div id="canvases"></div>
+<table id="control_buttons" class="dropdown" style="display:block; width: 70%;  border: 0px; margin: 0 0 50px 0"><tr></tr></table>
+<div id="code_panel" style="font-family: monospace; white-space: pre; margin: 50px 0" >
+  <div id="code_display"  data-displayed="" ></div>
+  <button id="edit_button" style="display:none">Start editing</button> 
+  <table id="class_list" class="dropdown" style="display:block; border: 0px; border-spacing: 10px " >
+    <tr><td colspan="2">Click below to navigate through all classes that are defined. <br>&nbsp;<br>Main demo: <span name="main_demo_link"></span></td></tr>
+    <tr style="text-align:center"><td>tinywebgl-ucla.js</td><td>dependencies.js</td></tr><tr></tr></table>
+</div>
+<form name="new_demo_source_code" style="display:none">  
+  <p style="margin: 50px 0"><i><b>What can I put here?</b></i>  A JavaScript class, with any valid JavaScript inside.  Your code can use classes from this demo, or from ANY demo on the 
+  encyclopedia of code --  the dependencies will automatically be pulled in to run your demo!<br></p>
+  <textarea rows="30" cols="140" name="new_demo_code"></textarea><br>
+  <div id="submit_result" style="margin: 10px 0"></div>
+  <button type="submit" style="margin: 0px 50px 0px 0px">Save as new webpage</button> 
+  <input type="text" name="author"   placeholder="Author name">
+  <input type="text" name="password" placeholder="Password" style="display:none">
+  <span id="overwrite_panel" style="display:none"><label>Overwrite?<input type="checkbox" name="overwrite" autocomplete="off"></label></span>
+  <span id="beginner_panel"><label>Beginner Mode<input type="checkbox" checked onchange="document.querySelector('#expert_panel').style.display='block'; beginner_panel.style.display='none'"></label></span>
+  <div id="expert_panel" style="display:none;"><label><input type="checkbox" name="finished" autocomplete="off">
+    Optional:  This demo is finished; consider it for public listing on the main page.  
+    I believe that this demo is the one true way to minimalistically do what its name says.
+    The code's readability and structure are so good as to maximize how easy it is to memorize it.
+    </label></div>  
+</form>
+</body></html>
